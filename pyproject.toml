@@ -1,0 +1,24 @@
+[tool.poetry]
+name = "trade-copier"
+version = "0.1.0"
+description = "MVP of a production-oriented web-based crypto futures API Trade Copier"
+authors = ["Hlib Ostapenko"]
+readme = "README.md"
+packages = [{ include = "app" }]
+
+[tool.poetry.dependencies]
+python = "^3.12"
+fastapi = "^0.115.0"
+uvicorn = { extras = ["standard"], version = "^0.30.0" }
+pydantic-settings = "^2.13.1"
+sqlalchemy = "^2.0.48"
+alembic = "^1.18.4"
+psycopg = {extras = ["binary"], version = "^3.3.3"}
+cryptography = "^46.0.5"
+pwdlib = {extras = ["argon2"], version = "^0.3.0"}
+email-validator = "^2.3.0"
+ccxt = "^4.5.42"
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
