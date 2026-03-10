@@ -35,3 +35,28 @@ class CopierExecutionResponse(BaseModel):
     side: str
     current_price: Decimal
     results: list[CopierExecutionItem]
+
+
+class ManualCopierExecutionAccount(BaseModel):
+    account_id: int
+    exchange: str
+    available_balance: Decimal
+    quantity_step: Decimal
+    min_quantity: Decimal | None = None
+    min_notional: Decimal | None = None
+
+
+class ManualCopierExecutionRequest(BaseModel):
+    symbol: str
+    side: str
+    current_price: Decimal
+    risk_percent: Decimal
+    leverage: Decimal
+    accounts: list[ManualCopierExecutionAccount]
+
+
+class ManualCopierExecutionResponse(BaseModel):
+    symbol: str
+    side: str
+    current_price: Decimal
+    results: list[CopierExecutionItem]

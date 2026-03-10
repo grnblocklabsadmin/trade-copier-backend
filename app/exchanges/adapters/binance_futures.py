@@ -12,6 +12,16 @@ from app.exchanges.base import (
     PositionSnapshot,
 )
 
+from app.exchanges.base import (
+    BalanceSnapshot,
+    BaseExchangeAdapter,
+    ExchangeCredentials,
+    MarketSpecSnapshot,
+    MarketOrderRequest,
+    OrderExecutionResult,
+    PositionSnapshot,
+)
+
 
 class BinanceFuturesAdapter(BaseExchangeAdapter):
     def __init__(self, credentials: ExchangeCredentials) -> None:
@@ -218,4 +228,12 @@ class BinanceFuturesAdapter(BaseExchangeAdapter):
             quantity_step=quantity_step,
             min_quantity=min_quantity,
             min_notional=min_notional,
+        )
+
+    def place_market_order(self, order: MarketOrderRequest) -> OrderExecutionResult:
+        return OrderExecutionResult(
+            success=False,
+            status="dry_run_only",
+            executed_quantity=None,
+            message="Live order placement is not implemented yet.",
         )

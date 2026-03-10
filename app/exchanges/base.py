@@ -35,6 +35,22 @@ class MarketSpecSnapshot:
     min_notional: Decimal | None
 
 
+@dataclass(slots=True)
+class MarketOrderRequest:
+    symbol: str
+    side: str
+    quantity: Decimal
+
+
+@dataclass(slots=True)
+class OrderExecutionResult:
+    success: bool
+    exchange_order_id: str | None = None
+    status: str | None = None
+    executed_quantity: Decimal | None = None
+    message: str | None = None
+
+
 class BaseExchangeAdapter(ABC):
     def __init__(self, credentials: ExchangeCredentials) -> None:
         self.credentials = credentials
@@ -57,4 +73,8 @@ class BaseExchangeAdapter(ABC):
 
     @abstractmethod
     def fetch_market_spec(self, symbol: str) -> MarketSpecSnapshot:
+        raise NotImplementedError
+
+    @abstractmethod
+    def place_market_order(self, order: MarketOrderRequest) -> OrderExecutionResult:
         raise NotImplementedError
