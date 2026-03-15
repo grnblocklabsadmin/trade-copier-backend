@@ -1,10 +1,32 @@
-# Trade Copier
+# Trade Copier Backend
 
-MVP of a production-oriented web-based crypto futures API Trade Copier.
+Multi-exchange crypto trade copier backend.
 
-## Current stage
+## Tech stack
 
-Foundation setup:
-- Poetry
+- Python 3.12
 - FastAPI
-- minimal application scaffold
+- PostgreSQL
+- SQLAlchemy
+- Alembic
+- Docker
+- Poetry
+
+## Features
+
+- multi-account dispatch
+- risk engine
+- position sizing
+- execution logging
+- run_id batching
+- exchange abstraction
+
+## Execution Pipeline
+
+API
+→ Copier Router
+→ Execution Engine
+→ Exchange Client
+→ Exchange Adapter
+→ OrderExecutionResult
+→ Execution Logs
