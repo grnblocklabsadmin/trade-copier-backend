@@ -18,10 +18,12 @@ class ExecutionLogService:
         status: str,
         message: str | None = None,
         payload: dict | None = None,
+        run_id: str | None = None,
     ) -> ExecutionLog:
         payload_json = json.dumps(payload, ensure_ascii=False) if payload is not None else None
 
         log = ExecutionLog(
+            run_id=run_id,
             event_type=event_type,
             symbol=symbol,
             side=side,

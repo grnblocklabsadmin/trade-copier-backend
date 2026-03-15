@@ -1,17 +1,17 @@
-# Python
+# Pyt
+hon
 __pycache__/
-*.py[cod]
+*.pyc
 *.pyo
 *.pyd
-.python-version
+*.log
 
 # Poetry
-.poetry/
 .venv/
+poetry.lock
 
-# Environment / local config
+# Env
 .env
-.env.*
 
 # IDE
 .vscode/
@@ -19,4 +19,17 @@ __pycache__/
 
 # OS
 .DS_Store
-Thumbs.db
+
+# Docker
+*.pid
+
+# Alembic cache
+alembic/__pycache__/
+
+# Python build
+build/
+dist/
+*.egg-info/
+
+# Logs
+logs/

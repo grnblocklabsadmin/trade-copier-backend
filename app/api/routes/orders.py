@@ -2,12 +2,14 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
+from app.api.guards import ensure_live_execution_enabled
+from app.core.trading import normalize_order_side
+from app.exchanges.base import MarketOrderRequest
 from app.schemas.orders import (
     MarketOrderRequestSchema,
     OrderExecutionResultSchema,
 )
 from app.services.exchange_client_service import ExchangeClientService
-from app.exchanges.base import MarketOrderRequest
 
 router = APIRouter(prefix="/orders", tags=["orders"])
 
@@ -17,13 +19,17 @@ def place_market_order(
     payload: MarketOrderRequestSchema,
     db: Session = Depends(get_db),
 ) -> OrderExecutionResultSchema:
+    ensure_live_execution_enabled()
+
     exchange_client_service = ExchangeClientService(db)
     adapter = exchange_client_service.get_adapter_for_account(payload.account_id)
+
+    normalized_side = normalize_order_side(payload.side)
 
     result = adapter.place_market_order(
         MarketOrderRequest(
             symbol=payload.symbol,
-            side=payload.side,
+            side=normalized_side,
             quantity=payload.quantity,
         )
     )

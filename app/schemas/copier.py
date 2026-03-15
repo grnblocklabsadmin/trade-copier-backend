@@ -87,6 +87,7 @@ class CopierDispatchItem(BaseModel):
 
 
 class CopierDispatchResponse(BaseModel):
+    run_id: str | None
     symbol: str
     side: str
     current_price: Decimal
@@ -112,6 +113,7 @@ class ManualCopierDispatchRequest(BaseModel):
 
 
 class ManualCopierDispatchResponse(BaseModel):
+    run_id: str | None
     symbol: str
     side: str
     current_price: Decimal

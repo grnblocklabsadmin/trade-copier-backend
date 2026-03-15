@@ -11,6 +11,8 @@ class ExecutionLog(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
 
+    run_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
+
     event_type: Mapped[str] = mapped_column(String(100), nullable=False)
     symbol: Mapped[str] = mapped_column(String(100), nullable=False)
     side: Mapped[str] = mapped_column(String(20), nullable=False)

@@ -1,8 +1,16 @@
+from uuid import uuid4
+
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
-from app.services.execution_log_service import ExecutionLogService
 
 from app.api.deps import get_db
+from app.api.guards import ensure_live_execution_enabled
+from app.core.risk import (
+    validate_account_ids,
+    validate_manual_accounts,
+    validate_risk_inputs,
+)
+from app.core.trading import normalize_order_side
 from app.exchanges.base import OrderExecutionResult
 from app.schemas.copier import (
     CopierDispatchItem,
@@ -17,6 +25,7 @@ from app.schemas.copier import (
     ManualCopierExecutionResponse,
 )
 from app.services.exchange_client_service import ExchangeClientService
+from app.services.execution_log_service import ExecutionLogService
 from app.services.trade_copier_execution_engine import TradeCopierExecutionEngine
 from app.services.trade_copier_service import TradeCopierService
 from app.sizing.position_sizing import (
@@ -32,8 +41,16 @@ def execute_copier_plan(
     payload: CopierExecutionRequest,
     db: Session = Depends(get_db),
 ) -> CopierExecutionResponse:
+    validate_account_ids(payload.account_ids)
+    validate_risk_inputs(
+        risk_percent=payload.risk_percent,
+        leverage=payload.leverage,
+        accounts_count=len(payload.account_ids),
+    )
+
     exchange_client_service = ExchangeClientService(db)
     copier_service = TradeCopierService(exchange_client_service)
+    normalized_side = normalize_order_side(payload.side)
 
     results: list[CopierExecutionItem] = []
 
@@ -53,7 +70,7 @@ def execute_copier_plan(
                 account_id=account_id,
                 exchange=exchange_name,
                 symbol=payload.symbol,
-                side=payload.side,
+                side=normalized_side,
                 available_balance=balance.available_balance,
                 allocated_margin=sizing_result.allocated_margin,
                 target_notional=sizing_result.target_notional,
@@ -70,7 +87,7 @@ def execute_copier_plan(
 
     return CopierExecutionResponse(
         symbol=payload.symbol,
-        side=payload.side,
+        side=normalized_side,
         current_price=payload.current_price,
         results=results,
     )
@@ -80,6 +97,14 @@ def execute_copier_plan(
 def execute_manual_copier_plan(
     payload: ManualCopierExecutionRequest,
 ) -> ManualCopierExecutionResponse:
+    validate_manual_accounts(payload.accounts)
+    validate_risk_inputs(
+        risk_percent=payload.risk_percent,
+        leverage=payload.leverage,
+        accounts_count=len(payload.accounts),
+    )
+
+    normalized_side = normalize_order_side(payload.side)
     results: list[CopierExecutionItem] = []
 
     for account in payload.accounts:
@@ -100,7 +125,7 @@ def execute_manual_copier_plan(
                 account_id=account.account_id,
                 exchange=account.exchange,
                 symbol=payload.symbol,
-                side=payload.side,
+                side=normalized_side,
                 available_balance=account.available_balance,
                 allocated_margin=sizing_result.allocated_margin,
                 target_notional=sizing_result.target_notional,
@@ -117,7 +142,7 @@ def execute_manual_copier_plan(
 
     return ManualCopierExecutionResponse(
         symbol=payload.symbol,
-        side=payload.side,
+        side=normalized_side,
         current_price=payload.current_price,
         results=results,
     )
@@ -128,8 +153,17 @@ def dispatch_copier_plan(
     payload: CopierDispatchRequest,
     db: Session = Depends(get_db),
 ) -> CopierDispatchResponse:
+    ensure_live_execution_enabled()
+    validate_account_ids(payload.account_ids)
+    validate_risk_inputs(
+        risk_percent=payload.risk_percent,
+        leverage=payload.leverage,
+        accounts_count=len(payload.account_ids),
+    )
+
     exchange_client_service = ExchangeClientService(db)
     execution_engine = TradeCopierExecutionEngine(exchange_client_service)
+    normalized_side = normalize_order_side(payload.side)
 
     results: list[CopierDispatchItem] = []
 
@@ -138,7 +172,7 @@ def dispatch_copier_plan(
             execution_engine.dispatch_for_account(
                 account_id=account_id,
                 symbol=payload.symbol,
-                side=payload.side,
+                side=normalized_side,
                 risk_percent=payload.risk_percent,
                 leverage=payload.leverage,
                 current_price=payload.current_price,
@@ -150,7 +184,7 @@ def dispatch_copier_plan(
                 account_id=account_id,
                 exchange=exchange_name,
                 symbol=payload.symbol,
-                side=payload.side,
+                side=normalized_side,
                 rounded_quantity=sizing_result.rounded_quantity,
                 final_notional=sizing_result.final_notional,
                 is_valid=sizing_result.is_valid,
@@ -163,8 +197,9 @@ def dispatch_copier_plan(
         )
 
     return CopierDispatchResponse(
+        run_id=None,
         symbol=payload.symbol,
-        side=payload.side,
+        side=normalized_side,
         current_price=payload.current_price,
         results=results,
     )
@@ -175,7 +210,16 @@ def dispatch_manual_copier_plan(
     payload: ManualCopierDispatchRequest,
     db: Session = Depends(get_db),
 ) -> ManualCopierDispatchResponse:
+    validate_manual_accounts(payload.accounts)
+    validate_risk_inputs(
+        risk_percent=payload.risk_percent,
+        leverage=payload.leverage,
+        accounts_count=len(payload.accounts),
+    )
+
+    run_id = str(uuid4())
     log_service = ExecutionLogService(db)
+    normalized_side = normalize_order_side(payload.side)
     results: list[CopierDispatchItem] = []
 
     for account in payload.accounts:
@@ -209,9 +253,10 @@ def dispatch_manual_copier_plan(
             )
 
         log_service.create_log(
+            run_id=run_id,
             event_type="copier_dispatch_manual",
             symbol=payload.symbol,
-            side=payload.side,
+            side=normalized_side,
             account_id=account.account_id,
             exchange=account.exchange,
             status=order_result.status or "unknown",
@@ -238,7 +283,7 @@ def dispatch_manual_copier_plan(
                 account_id=account.account_id,
                 exchange=account.exchange,
                 symbol=payload.symbol,
-                side=payload.side,
+                side=normalized_side,
                 rounded_quantity=sizing_result.rounded_quantity,
                 final_notional=sizing_result.final_notional,
                 is_valid=sizing_result.is_valid,
@@ -251,8 +296,9 @@ def dispatch_manual_copier_plan(
         )
 
     return ManualCopierDispatchResponse(
+        run_id=run_id,
         symbol=payload.symbol,
-        side=payload.side,
+        side=normalized_side,
         current_price=payload.current_price,
         results=results,
     )
