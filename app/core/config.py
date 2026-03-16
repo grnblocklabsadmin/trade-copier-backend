@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     encryption_key: str
 
     live_execution_enabled: bool = False
+    enable_real_trading: bool = False
 
     model_config = SettingsConfigDict(
         env_file=".env",

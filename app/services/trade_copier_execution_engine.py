@@ -6,6 +6,11 @@ from app.sizing.position_sizing import (
     calculate_position_size,
 )
 
+from app.core.order_validation import (
+    OrderRequestValidationInput,
+    validate_order_request,
+)
+
 
 class TradeCopierExecutionEngine:
     def __init__(self, exchange_client_service: ExchangeClientService) -> None:
@@ -68,6 +73,36 @@ class TradeCopierExecutionEngine:
                     status="validation_failed",
                     executed_quantity=None,
                     message="Order was not dispatched because validation failed.",
+                ),
+            )
+
+        order_validation_input = OrderRequestValidationInput(
+            execution_mode="simulated",
+            side=side,
+            price=current_price,
+            requested_quantity=sizing_result.rounded_quantity,
+            quantity_step=market_spec.quantity_step,
+            min_quantity=market_spec.min_quantity,
+            min_notional=market_spec.min_notional,
+            final_notional=sizing_result.final_notional,
+            run_id=None,
+            account_id=account_id,
+            exchange=exchange_name,
+            symbol=symbol,
+        )
+
+        order_validation_result = validate_order_request(order_validation_input)
+
+        if not order_validation_result.is_valid:
+            return (
+                exchange_name,
+                market_spec,
+                sizing_result,
+                OrderExecutionResult(
+                    success=False,
+                    status=order_validation_result.status,
+                    executed_quantity=None,
+                    message="; ".join(order_validation_result.errors),
                 ),
             )
 

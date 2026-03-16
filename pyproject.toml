@@ -18,6 +18,10 @@ cryptography = "^46.0.5"
 pwdlib = {extras = ["argon2"], version = "^0.3.0"}
 email-validator = "^2.3.0"
 ccxt = "^4.5.42"
+httpx = "^0.28.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.0.0"
 
 [build-system]
 requires = ["poetry-core>=2.0.0,<3.0.0"]

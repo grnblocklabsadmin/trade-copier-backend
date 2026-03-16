@@ -1,17 +1,17 @@
-from uuid import uuid4
+from decimal import Decimal
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
 from app.api.guards import ensure_live_execution_enabled
+from app.core.execution_modes import ExecutionMode
 from app.core.risk import (
     validate_account_ids,
     validate_manual_accounts,
     validate_risk_inputs,
 )
 from app.core.trading import normalize_order_side
-from app.exchanges.base import OrderExecutionResult
 from app.schemas.copier import (
     CopierDispatchItem,
     CopierDispatchRequest,
@@ -19,11 +19,17 @@ from app.schemas.copier import (
     CopierExecutionItem,
     CopierExecutionRequest,
     CopierExecutionResponse,
+    CopierPlanDispatchRequest,
+    CopierPlanDispatchResponse,
+    CopierPlanItemSchema,
+    ManualCopierDispatchAccount,
     ManualCopierDispatchRequest,
     ManualCopierDispatchResponse,
     ManualCopierExecutionRequest,
     ManualCopierExecutionResponse,
 )
+from app.services.copier_execution_service import execute_copier_for_accounts
+from app.services.copier_orchestration_service import execute_copier_from_master_position
 from app.services.exchange_client_service import ExchangeClientService
 from app.services.execution_log_service import ExecutionLogService
 from app.services.trade_copier_execution_engine import TradeCopierExecutionEngine
@@ -217,88 +223,107 @@ def dispatch_manual_copier_plan(
         accounts_count=len(payload.accounts),
     )
 
-    run_id = str(uuid4())
     log_service = ExecutionLogService(db)
     normalized_side = normalize_order_side(payload.side)
-    results: list[CopierDispatchItem] = []
-
-    for account in payload.accounts:
-        sizing_result = calculate_position_size(
-            PositionSizingInput(
-                available_balance=account.available_balance,
-                risk_percent=payload.risk_percent,
-                leverage=payload.leverage,
-                current_price=payload.current_price,
-                quantity_step=account.quantity_step,
-                min_quantity=account.min_quantity,
-                min_notional=account.min_notional,
-            )
-        )
-
-        if sizing_result.is_valid:
-            order_result = OrderExecutionResult(
-                success=True,
-                status="simulated_dispatched",
-                exchange_order_id=None,
-                executed_quantity=sizing_result.rounded_quantity,
-                message="Manual copier dispatch simulated successfully.",
-            )
-        else:
-            order_result = OrderExecutionResult(
-                success=False,
-                status="validation_failed",
-                exchange_order_id=None,
-                executed_quantity=None,
-                message="Manual copier dispatch was skipped because validation failed.",
-            )
-
-        log_service.create_log(
-            run_id=run_id,
-            event_type="copier_dispatch_manual",
-            symbol=payload.symbol,
-            side=normalized_side,
-            account_id=account.account_id,
-            exchange=account.exchange,
-            status=order_result.status or "unknown",
-            message=order_result.message,
-            payload={
-                "current_price": str(payload.current_price),
-                "available_balance": str(account.available_balance),
-                "allocated_margin": str(sizing_result.allocated_margin),
-                "target_notional": str(sizing_result.target_notional),
-                "raw_quantity": str(sizing_result.raw_quantity),
-                "rounded_quantity": str(sizing_result.rounded_quantity),
-                "final_notional": str(sizing_result.final_notional),
-                "quantity_step": str(account.quantity_step),
-                "min_quantity": str(account.min_quantity) if account.min_quantity is not None else None,
-                "min_notional": str(account.min_notional) if account.min_notional is not None else None,
-                "is_valid": sizing_result.is_valid,
-                "validation_errors": sizing_result.validation_errors,
-                "dispatched": order_result.success,
-            },
-        )
-
-        results.append(
-            CopierDispatchItem(
-                account_id=account.account_id,
-                exchange=account.exchange,
-                symbol=payload.symbol,
-                side=normalized_side,
-                rounded_quantity=sizing_result.rounded_quantity,
-                final_notional=sizing_result.final_notional,
-                is_valid=sizing_result.is_valid,
-                validation_errors=sizing_result.validation_errors,
-                dispatched=order_result.success,
-                dispatch_status=order_result.status or "unknown",
-                exchange_order_id=order_result.exchange_order_id,
-                message=order_result.message,
-            )
-        )
+    exec_result = execute_copier_for_accounts(
+        execution_mode=ExecutionMode.SIMULATED.value,
+        symbol=payload.symbol,
+        side=payload.side,
+        current_price=payload.current_price,
+        risk_percent=payload.risk_percent,
+        leverage=payload.leverage,
+        accounts=payload.accounts,
+        log_service=log_service,
+        event_type="copier_dispatch_manual",
+    )
 
     return ManualCopierDispatchResponse(
-        run_id=run_id,
+        run_id=exec_result.run_id,
         symbol=payload.symbol,
         side=normalized_side,
         current_price=payload.current_price,
-        results=results,
+        results=exec_result.results,
+    )
+
+
+@router.post("/plan/dispatch", response_model=CopierPlanDispatchResponse)
+def dispatch_copier_plan_from_master(
+    payload: CopierPlanDispatchRequest,
+    db: Session = Depends(get_db),
+) -> CopierPlanDispatchResponse:
+    """
+    Dry-run copier: master position -> plan -> execution items -> simulated run.
+    Uses copier_orchestration_service; execution_mode is always SIMULATED.
+    """
+    validate_manual_accounts(payload.follower_accounts)
+    validate_risk_inputs(
+        risk_percent=payload.risk_percent,
+        leverage=payload.leverage,
+        accounts_count=len(payload.follower_accounts),
+    )
+
+    follower_positions: dict[int, Decimal] = {}
+    if payload.follower_positions:
+        for k, v in payload.follower_positions.items():
+            try:
+                follower_positions[int(k)] = v
+            except (ValueError, TypeError):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail=f"follower_positions: invalid account_id key {k!r}.",
+                ) from None
+
+    accounts_by_id: dict[int, ManualCopierDispatchAccount] = {
+        a.account_id: a for a in payload.follower_accounts
+    }
+
+    def get_account(account_id: int) -> ManualCopierDispatchAccount:
+        if account_id not in accounts_by_id:
+            raise ValueError(f"Account {account_id} not found in follower_accounts.")
+        return accounts_by_id[account_id]
+
+    log_service = ExecutionLogService(db)
+    normalized_side = normalize_order_side(payload.side)
+
+    try:
+        out = execute_copier_from_master_position(
+            master_symbol=payload.symbol,
+            master_side=normalized_side,
+            master_quantity=payload.master_quantity,
+            execution_mode=ExecutionMode.SIMULATED.value,
+            current_price=payload.current_price,
+            risk_percent=payload.risk_percent,
+            leverage=payload.leverage,
+            follower_accounts=payload.follower_accounts,
+            follower_positions=follower_positions or None,
+            get_account=get_account,
+            log_service=log_service,
+            run_id=None,
+            event_type="copier_dispatch_plan",
+        )
+    except ValueError as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e),
+        ) from e
+
+    plan_items_schema = [
+        CopierPlanItemSchema(
+            account_id=p.account_id,
+            exchange=p.exchange,
+            symbol=p.symbol,
+            side=p.side,
+            action=p.action,
+            target_quantity=p.target_quantity,
+            delta_quantity=p.delta_quantity,
+            reason=p.reason,
+        )
+        for p in out.plan_items
+    ]
+
+    return CopierPlanDispatchResponse(
+        run_id=out.run_id,
+        plan_items=plan_items_schema,
+        execution_items_count=len(out.execution_items),
+        results=out.results,
     )

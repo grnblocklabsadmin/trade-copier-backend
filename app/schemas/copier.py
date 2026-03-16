@@ -118,3 +118,38 @@ class ManualCopierDispatchResponse(BaseModel):
     side: str
     current_price: Decimal
     results: list[CopierDispatchItem]
+
+
+# --- Plan dispatch (dry-run copier orchestration) ---
+
+
+class CopierPlanItemSchema(BaseModel):
+    """Pydantic mirror of CopierPlanItem for API response."""
+    account_id: int
+    exchange: str
+    symbol: str
+    side: str
+    action: str
+    target_quantity: Decimal
+    delta_quantity: Decimal
+    reason: str
+
+
+class CopierPlanDispatchRequest(BaseModel):
+    """Request for POST /copier/plan/dispatch (dry-run copier from master position)."""
+    symbol: str
+    side: str
+    master_quantity: Decimal
+    current_price: Decimal
+    risk_percent: Decimal
+    leverage: Decimal
+    follower_accounts: list[ManualCopierDispatchAccount]
+    follower_positions: dict[str, Decimal] | None = None
+
+
+class CopierPlanDispatchResponse(BaseModel):
+    """Response for POST /copier/plan/dispatch."""
+    run_id: str
+    plan_items: list[CopierPlanItemSchema]
+    execution_items_count: int
+    results: list[CopierDispatchItem]
